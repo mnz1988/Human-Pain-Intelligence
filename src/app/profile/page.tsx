@@ -1,6 +1,12 @@
 import { getSessionUserId } from "@/lib/session";
 import { db } from "@/db";
-import { users, contributions, contributionContent } from "@/db/schema";
+import {
+  users,
+  contributions,
+  contributionContent,
+  problemClusters,
+  problemClusterMembers,
+} from "@/db/schema";
 import { eq, desc } from "drizzle-orm";
 import Link from "next/link";
 
@@ -38,9 +44,13 @@ export default async function ProfilePage() {
       status: contributions.status,
       createdAt: contributions.createdAt,
       sanitizedText: contributionContent.sanitizedText,
+      problemTitle: problemClusters.title,
+      problemCategory: problemClusters.primaryCategory,
     })
     .from(contributions)
     .leftJoin(contributionContent, eq(contributionContent.contributionId, contributions.id))
+    .leftJoin(problemClusterMembers, eq(problemClusterMembers.contributionId, contributions.id))
+    .leftJoin(problemClusters, eq(problemClusters.id, problemClusterMembers.clusterId))
     .where(eq(contributions.userId, userId))
     .orderBy(desc(contributions.createdAt));
 
@@ -61,7 +71,17 @@ export default async function ProfilePage() {
               <div className="text-xs text-neutral-500 mb-1">
                 {row.status} · {row.createdAt?.toLocaleString()}
               </div>
-              <p className="text-sm line-clamp-3">{row.sanitizedText}</p>
+              {row.problemTitle && (
+                <div className="text-sm font-medium mb-1">
+                  {row.problemTitle}
+                  {row.problemCategory && (
+                    <span className="ml-2 text-xs font-normal text-neutral-500">
+                      {row.problemCategory}
+                    </span>
+                  )}
+                </div>
+              )}
+              <p className="text-sm line-clamp-3 text-neutral-700">{row.sanitizedText}</p>
             </li>
           ))}
         </ul>

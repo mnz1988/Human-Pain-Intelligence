@@ -7,6 +7,7 @@ import {
   timestamp,
   text,
   boolean,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // 9.1 users — pseudonymous account, never exposes real identity
@@ -59,3 +60,38 @@ export const contributionContent = pgTable("contribution_content", {
   privacyRiskScore: numeric("privacy_risk_score", { precision: 5, scale: 2 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// 9.5 contribution_entities — normalized entities pulled out during extraction
+export const contributionEntities = pgTable("contribution_entities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contributionId: uuid("contribution_id").references(() => contributions.id),
+  entityType: varchar("entity_type", { length: 50 }).notNull(),
+  normalizedValue: text("normalized_value").notNull(),
+  confidence: numeric("confidence", { precision: 5, scale: 4 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// 9.8 problem_clusters — starts as a single-contribution cluster; real clustering merges these later
+export const problemClusters = pgTable("problem_clusters", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(),
+  summary: text("summary"),
+  primaryCategory: varchar("primary_category", { length: 100 }),
+  secondaryCategory: varchar("secondary_category", { length: 100 }),
+  status: varchar("status", { length: 30 }).notNull().default("emerging"),
+  confidenceScore: numeric("confidence_score", { precision: 5, scale: 2 }).default("0"),
+  demandScore: numeric("demand_score", { precision: 5, scale: 2 }).default("0"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// 9.9 problem_cluster_members
+export const problemClusterMembers = pgTable(
+  "problem_cluster_members",
+  {
+    clusterId: uuid("cluster_id").references(() => problemClusters.id),
+    contributionId: uuid("contribution_id").references(() => contributions.id),
+    membershipConfidence: numeric("membership_confidence", { precision: 5, scale: 4 }),
+  },
+  (table) => [primaryKey({ columns: [table.clusterId, table.contributionId] })]
+);

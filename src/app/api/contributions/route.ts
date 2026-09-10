@@ -1,10 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Client as QStashClient } from "@upstash/qstash";
 import { db } from "@/db";
 import { users, userCredentials, contributions, contributionContent } from "@/db/schema";
 import { generatePublicAlias } from "@/lib/alias";
 import { generateRecoverySecret, hashSecret } from "@/lib/secret";
 import { createSession, getSessionUserId } from "@/lib/session";
 import { eq } from "drizzle-orm";
+
+function getAppUrl(req: NextRequest): string {
+  if (process.env.APP_URL) return process.env.APP_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return new URL(req.url).origin;
+}
+
+async function enqueueProcessing(req: NextRequest, contributionId: string) {
+  if (!process.env.QSTASH_TOKEN) {
+    console.warn("QSTASH_TOKEN not set — skipping job enqueue for", contributionId);
+    return;
+  }
+  const qstash = new QStashClient({ token: process.env.QSTASH_TOKEN });
+  await qstash.publishJSON({
+    url: `${getAppUrl(req)}/api/jobs/process`,
+    body: { contributionId },
+  });
+}
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
