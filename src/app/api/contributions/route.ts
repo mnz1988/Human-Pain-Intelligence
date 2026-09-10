@@ -18,11 +18,17 @@ async function enqueueProcessing(req: NextRequest, contributionId: string) {
     console.warn("QSTASH_TOKEN not set — skipping job enqueue for", contributionId);
     return;
   }
-  const qstash = new QStashClient({ token: process.env.QSTASH_TOKEN });
-  await qstash.publishJSON({
-    url: `${getAppUrl(req)}/api/jobs/process`,
-    body: { contributionId },
-  });
+  try {
+    const qstash = new QStashClient({ token: process.env.QSTASH_TOKEN });
+    await qstash.publishJSON({
+      url: `${getAppUrl(req)}/api/jobs/process`,
+      body: { contributionId },
+    });
+  } catch (err) {
+    // Submission itself already succeeded — log and let it sit as "pending"
+    // rather than failing the whole request over a queueing issue.
+    console.error("Failed to enqueue processing job for", contributionId, err);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -91,6 +97,8 @@ export async function POST(req: NextRequest) {
   if (newAccount) {
     await createSession(userId);
   }
+
+  await enqueueProcessing(req, contribution.id);
 
   return NextResponse.json({
     ok: true,
