@@ -15,7 +15,9 @@
     "@neondatabase/serverless": "^1.1.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
+    "jose": "^6.2.12",
     "next": "16.3.4",
+    "openssl": "^2.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

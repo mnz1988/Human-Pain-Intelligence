@@ -22,6 +22,19 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// 9.2 user_credentials — recovery secret only; never store the plaintext, only a hash
+export const userCredentials = pgTable("user_credentials", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  credentialType: varchar("credential_type", { length: 30 }).notNull(),
+  credentialReference: text("credential_reference").notNull(),
+  encrypted: boolean("encrypted").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // 9.3 contributions — the submission envelope; status drives the async pipeline
 export const contributions = pgTable("contributions", {
   id: uuid("id").primaryKey().defaultRandom(),
