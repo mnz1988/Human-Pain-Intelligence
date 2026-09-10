@@ -1,0 +1,48 @@
+import {
+  pgTable,
+  uuid,
+  varchar,
+  numeric,
+  integer,
+  timestamp,
+  text,
+  boolean,
+} from "drizzle-orm/pg-core";
+
+// 9.1 users — pseudonymous account, never exposes real identity
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  publicAlias: varchar("public_alias", { length: 32 }).notNull().unique(),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  reputationScore: numeric("reputation_score", { precision: 10, scale: 4 })
+    .notNull()
+    .default("0"),
+  level: integer("level").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// 9.3 contributions — the submission envelope; status drives the async pipeline
+export const contributions = pgTable("contributions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id),
+  sourceType: varchar("source_type", { length: 30 }).notNull().default("user_submission"),
+  sourceRecordId: uuid("source_record_id"),
+  status: varchar("status", { length: 30 }).notNull().default("pending"),
+  language: varchar("language", { length: 20 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+});
+
+// 9.4 contribution_content — raw text is restricted; sanitized_text is the public/dataset layer
+export const contributionContent = pgTable("contribution_content", {
+  contributionId: uuid("contribution_id")
+    .primaryKey()
+    .references(() => contributions.id),
+  rawText: text("raw_text"),
+  sanitizedText: text("sanitized_text"),
+  rawStorageClass: varchar("raw_storage_class", { length: 30 }).default("restricted"),
+  piiProcessed: boolean("pii_processed").default(false),
+  privacyRiskScore: numeric("privacy_risk_score", { precision: 5, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
