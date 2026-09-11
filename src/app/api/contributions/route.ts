@@ -9,25 +9,31 @@ import { eq } from "drizzle-orm";
 
 function getAppUrl(req: NextRequest): string {
   if (process.env.APP_URL) return process.env.APP_URL;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  // Prefer the domain the request actually came in on — VERCEL_URL points at
+  // the deployment-specific URL, which may sit behind Deployment Protection
+  // and reject external callers like QStash.
   return new URL(req.url).origin;
 }
 
-async function enqueueProcessing(req: NextRequest, contributionId: string) {
+async function enqueueProcessing(
+  req: NextRequest,
+  contributionId: string
+): Promise<{ enqueued: boolean; reason?: string; targetUrl?: string }> {
+  const targetUrl = `${getAppUrl(req)}/api/jobs/process`;
   if (!process.env.QSTASH_TOKEN) {
-    console.warn("QSTASH_TOKEN not set — skipping job enqueue for", contributionId);
-    return;
+    return { enqueued: false, reason: "QSTASH_TOKEN not set", targetUrl };
   }
   try {
     const qstash = new QStashClient({ token: process.env.QSTASH_TOKEN });
     await qstash.publishJSON({
-      url: `${getAppUrl(req)}/api/jobs/process`,
+      url: targetUrl,
       body: { contributionId },
     });
+    return { enqueued: true, targetUrl };
   } catch (err) {
-    // Submission itself already succeeded — log and let it sit as "pending"
-    // rather than failing the whole request over a queueing issue.
+    const reason = err instanceof Error ? err.message : "unknown error";
     console.error("Failed to enqueue processing job for", contributionId, err);
+    return { enqueued: false, reason, targetUrl };
   }
 }
 
@@ -98,11 +104,12 @@ export async function POST(req: NextRequest) {
     await createSession(userId);
   }
 
-  await enqueueProcessing(req, contribution.id);
+  const enqueueResult = await enqueueProcessing(req, contribution.id);
 
   return NextResponse.json({
     ok: true,
     contributionId: contribution.id,
     account: newAccount, // only present on first-ever submission for this browser
+    debug: enqueueResult, // temporary: shows whether the processing job was enqueued
   });
 }
