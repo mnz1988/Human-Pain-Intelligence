@@ -43,9 +43,13 @@ export default async function ProfilePage() {
       id: contributions.id,
       status: contributions.status,
       createdAt: contributions.createdAt,
+      language: contributions.language,
       sanitizedText: contributionContent.sanitizedText,
       problemTitle: problemClusters.title,
       problemCategory: problemClusters.primaryCategory,
+      urgency: problemClusters.urgency,
+      geographicScope: problemClusters.geographicScope,
+      tags: problemClusters.tags,
     })
     .from(contributions)
     .leftJoin(contributionContent, eq(contributionContent.contributionId, contributions.id))
@@ -53,6 +57,12 @@ export default async function ProfilePage() {
     .leftJoin(problemClusters, eq(problemClusters.id, problemClusterMembers.clusterId))
     .where(eq(contributions.userId, userId))
     .orderBy(desc(contributions.createdAt));
+
+  const urgencyStyles: Record<string, string> = {
+    high: "bg-red-100 text-red-700",
+    medium: "bg-amber-100 text-amber-700",
+    low: "bg-neutral-100 text-neutral-600",
+  };
 
   return (
     <main className="mx-auto max-w-lg px-6 py-16">
@@ -68,8 +78,24 @@ export default async function ProfilePage() {
         <ul className="space-y-3">
           {rows.map((row) => (
             <li key={row.id} className="rounded-md border border-neutral-200 p-3">
-              <div className="text-xs text-neutral-500 mb-1">
-                {row.status} · {row.createdAt?.toLocaleString()}
+              <div className="text-xs text-neutral-500 mb-1 flex items-center gap-2 flex-wrap">
+                <span>{row.status}</span>
+                <span>·</span>
+                <span>{row.createdAt?.toLocaleString()}</span>
+                {row.language && (
+                  <span className="uppercase text-[10px] tracking-wide bg-neutral-100 px-1.5 py-0.5 rounded">
+                    {row.language}
+                  </span>
+                )}
+                {row.urgency && (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      urgencyStyles[row.urgency] ?? "bg-neutral-100 text-neutral-600"
+                    }`}
+                  >
+                    {row.urgency} urgency
+                  </span>
+                )}
               </div>
               {row.problemTitle && (
                 <div className="text-sm font-medium mb-1">
@@ -81,7 +107,22 @@ export default async function ProfilePage() {
                   )}
                 </div>
               )}
-              <p className="text-sm line-clamp-3 text-neutral-700">{row.sanitizedText}</p>
+              <p className="text-sm line-clamp-3 text-neutral-700 mb-2">{row.sanitizedText}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {row.geographicScope && (
+                  <span className="text-[10px] text-neutral-500 border border-neutral-200 px-1.5 py-0.5 rounded">
+                    📍 {row.geographicScope}
+                  </span>
+                )}
+                {row.tags?.map((tag) => (
+                  <span
+                    key={tag}
+                    className="text-[10px] text-neutral-500 border border-neutral-200 px-1.5 py-0.5 rounded"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
             </li>
           ))}
         </ul>

@@ -28,6 +28,11 @@ export async function saveProcessedResult(
   result: ProcessedContribution
 ): Promise<{ problemId: string }> {
   await db
+    .update(contributions)
+    .set({ language: result.language })
+    .where(eq(contributions.id, contributionId));
+
+  await db
     .update(contributionContent)
     .set({
       sanitizedText: result.sanitizedText,
@@ -54,6 +59,10 @@ export async function saveProcessedResult(
       summary: result.problem.summary,
       primaryCategory: result.problem.primaryCategory,
       secondaryCategory: result.problem.secondaryCategory ?? undefined,
+      urgency: result.problem.urgency,
+      perspective: result.problem.perspective,
+      geographicScope: result.problem.geographicScope ?? undefined,
+      tags: result.problem.tags,
     })
     .returning();
 
