@@ -1,41 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Client as QStashClient } from "@upstash/qstash";
 import { db } from "@/db";
 import { users, userCredentials, contributions, contributionContent } from "@/db/schema";
 import { generatePublicAlias } from "@/lib/alias";
 import { generateRecoverySecret, hashSecret } from "@/lib/secret";
 import { createSession, getSessionUserId } from "@/lib/session";
 import { eq } from "drizzle-orm";
-
-function getAppUrl(req: NextRequest): string {
-  if (process.env.APP_URL) return process.env.APP_URL;
-  // Prefer the domain the request actually came in on — VERCEL_URL points at
-  // the deployment-specific URL, which may sit behind Deployment Protection
-  // and reject external callers like QStash.
-  return new URL(req.url).origin;
-}
-
-async function enqueueProcessing(
-  req: NextRequest,
-  contributionId: string
-): Promise<{ enqueued: boolean; reason?: string; targetUrl?: string }> {
-  const targetUrl = `${getAppUrl(req)}/api/jobs/process`;
-  if (!process.env.QSTASH_TOKEN) {
-    return { enqueued: false, reason: "QSTASH_TOKEN not set", targetUrl };
-  }
-  try {
-    const qstash = new QStashClient({ token: process.env.QSTASH_TOKEN });
-    await qstash.publishJSON({
-      url: targetUrl,
-      body: { contributionId },
-    });
-    return { enqueued: true, targetUrl };
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : "unknown error";
-    console.error("Failed to enqueue processing job for", contributionId, err);
-    return { enqueued: false, reason, targetUrl };
-  }
-}
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -104,12 +73,12 @@ export async function POST(req: NextRequest) {
     await createSession(userId);
   }
 
-  const enqueueResult = await enqueueProcessing(req, contribution.id);
+  // Processing happens via the local worker, which polls /api/jobs/pending.
+  // No push/enqueue step needed here — the submission just sits at "pending".
 
   return NextResponse.json({
     ok: true,
     contributionId: contribution.id,
     account: newAccount, // only present on first-ever submission for this browser
-    debug: enqueueResult, // temporary: shows whether the processing job was enqueued
   });
 }

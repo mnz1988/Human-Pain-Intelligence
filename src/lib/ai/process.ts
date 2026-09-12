@@ -7,7 +7,7 @@ let client: OpenAI | null = null;
 function getClient(): OpenAI {
   if (!client) {
     client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
+      apiKey: process.env.OPENAI_API_KEY || "not-needed-for-lm-studio",
       baseURL: process.env.AI_BASE_URL, // undefined -> OpenAI's default
     });
   }

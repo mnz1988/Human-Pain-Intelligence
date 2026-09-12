@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 import { db } from "@/db";
-import {
-  contributions,
-  contributionContent,
-  contributionEntities,
-  problemClusters,
-  problemClusterMembers,
-} from "@/db/schema";
+import { contributionContent } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { processContribution } from "@/lib/ai/process";
+import { markProcessing, markFailed, saveProcessedResult } from "@/lib/processing-result";
 
 const receiver =
   process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY
@@ -19,11 +14,12 @@ const receiver =
       })
     : null;
 
+// Push-based processing via QStash. Currently unused in favor of the local
+// pull worker (/api/jobs/pending + /api/jobs/complete), kept for future use
+// if/when the AI backend is reachable from the public internet again.
 export async function POST(req: NextRequest) {
   const bodyText = await req.text();
 
-  // Verify this request genuinely came from QStash (skipped only if signing keys
-  // aren't configured yet, e.g. local dev without QStash set up).
   if (receiver) {
     const signature = req.headers.get("upstash-signature");
     if (!signature) {
@@ -52,61 +48,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await db
-      .update(contributions)
-      .set({ status: "processing" })
-      .where(eq(contributions.id, contributionId));
-
+    await markProcessing(contributionId);
     const result = await processContribution(content.rawText);
-
-    await db
-      .update(contributionContent)
-      .set({
-        sanitizedText: result.sanitizedText,
-        piiProcessed: true,
-        privacyRiskScore: String(result.privacyRiskScore),
-      })
-      .where(eq(contributionContent.contributionId, contributionId));
-
-    if (result.entities.length > 0) {
-      await db.insert(contributionEntities).values(
-        result.entities.map((e) => ({
-          contributionId,
-          entityType: e.entityType,
-          normalizedValue: e.normalizedValue,
-          confidence: String(e.confidence),
-        }))
-      );
-    }
-
-    const [cluster] = await db
-      .insert(problemClusters)
-      .values({
-        title: result.problem.title,
-        summary: result.problem.summary,
-        primaryCategory: result.problem.primaryCategory,
-        secondaryCategory: result.problem.secondaryCategory ?? undefined,
-      })
-      .returning();
-
-    await db.insert(problemClusterMembers).values({
-      clusterId: cluster.id,
-      contributionId,
-      membershipConfidence: "1.0",
-    });
-
-    await db
-      .update(contributions)
-      .set({ status: "processed", processedAt: new Date() })
-      .where(eq(contributions.id, contributionId));
-
-    return NextResponse.json({ ok: true, problemId: cluster.id });
+    const { problemId } = await saveProcessedResult(contributionId, result);
+    return NextResponse.json({ ok: true, problemId });
   } catch (err) {
-    await db
-      .update(contributions)
-      .set({ status: "failed" })
-      .where(eq(contributions.id, contributionId));
-
+    await markFailed(contributionId);
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "processing failed" },
       { status: 500 }
