@@ -36,6 +36,9 @@ async function main() {
     process.exit(1);
   }
 
+  console.log(
+    `Removed ${data.duplicatesDeleted} duplicate submission(s) across ${data.duplicateGroups} group(s).`
+  );
   console.log(`Requeued ${data.requeued} failed submission(s) back to pending.`);
   console.log("Run `npm run worker` (if not already running) to reprocess them.");
 }

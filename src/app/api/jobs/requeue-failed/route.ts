@@ -12,6 +12,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
   }
 
-  const count = await requeueFailed();
-  return NextResponse.json({ ok: true, requeued: count });
+  const result = await requeueFailed();
+  return NextResponse.json({ ok: true, ...result });
 }

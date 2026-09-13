@@ -6,7 +6,7 @@ import {
   problemClusters,
   problemClusterMembers,
 } from "@/db/schema";
-import { eq, isNotNull, desc } from "drizzle-orm";
+import { eq, isNotNull, desc, inArray, sql } from "drizzle-orm";
 import type { ProcessedContribution } from "@/lib/ai/process";
 
 const SIMILARITY_THRESHOLD = Number(process.env.CLUSTER_SIMILARITY_THRESHOLD) || 0.82;
@@ -29,14 +29,54 @@ export async function markFailed(contributionId: string) {
     .where(eq(contributions.id, contributionId));
 }
 
+/**
+ * Removes exact-duplicate failed submissions from the same user (identical
+ * raw text) before restoring, keeping only the earliest attempt. Without
+ * this, retries during an outage would each get reprocessed and merged into
+ * the same cluster, inflating its member/demand count with one person's
+ * repeated attempts rather than genuinely distinct reports.
+ */
+export async function dedupeFailedSubmissions(): Promise<{ duplicateGroups: number; deleted: number }> {
+  const result = await db.execute<{ ids: string[] }>(sql`
+    SELECT array_agg(c.id ORDER BY c.created_at) AS ids
+    FROM contributions c
+    JOIN contribution_content cc ON cc.contribution_id = c.id
+    WHERE c.status = 'failed' AND c.user_id IS NOT NULL AND cc.raw_text IS NOT NULL
+    GROUP BY c.user_id, cc.raw_text
+    HAVING count(*) > 1
+  `);
+
+  const rows = result.rows ?? (result as unknown as { ids: string[] }[]);
+  let deleted = 0;
+
+  for (const row of rows) {
+    const ids = row.ids;
+    const idsToDelete = ids.slice(1); // keep the earliest, drop the rest
+    if (idsToDelete.length === 0) continue;
+
+    await db.delete(contributionContent).where(inArray(contributionContent.contributionId, idsToDelete));
+    await db.delete(contributions).where(inArray(contributions.id, idsToDelete));
+    deleted += idsToDelete.length;
+  }
+
+  return { duplicateGroups: rows.length, deleted };
+}
+
 /** Resets every "failed" contribution back to "pending" so the worker picks it up again. */
-export async function requeueFailed(): Promise<number> {
+export async function requeueFailed(): Promise<{
+  duplicateGroups: number;
+  duplicatesDeleted: number;
+  requeued: number;
+}> {
+  const { duplicateGroups, deleted } = await dedupeFailedSubmissions();
+
   const rows = await db
     .update(contributions)
     .set({ status: "pending" })
     .where(eq(contributions.status, "failed"))
     .returning({ id: contributions.id });
-  return rows.length;
+
+  return { duplicateGroups, duplicatesDeleted: deleted, requeued: rows.length };
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
