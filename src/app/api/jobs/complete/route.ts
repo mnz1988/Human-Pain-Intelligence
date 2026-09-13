@@ -7,6 +7,7 @@ interface CompleteBody {
   contributionId: string;
   success: boolean;
   result?: ProcessedContribution;
+  embedding?: number[];
   error?: string;
 }
 
@@ -39,8 +40,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { problemId } = await saveProcessedResult(body.contributionId, body.result);
-    return NextResponse.json({ ok: true, marked: "processed", problemId });
+    const { problemId, matchedExistingCluster, similarity } = await saveProcessedResult(
+      body.contributionId,
+      body.result,
+      body.embedding ?? null
+    );
+    return NextResponse.json({
+      ok: true,
+      marked: "processed",
+      problemId,
+      matchedExistingCluster,
+      similarity,
+    });
   } catch (err) {
     await markFailed(body.contributionId);
     return NextResponse.json(

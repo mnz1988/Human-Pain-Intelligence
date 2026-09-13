@@ -50,6 +50,7 @@ export default async function ProfilePage() {
       urgency: problemClusters.urgency,
       geographicScope: problemClusters.geographicScope,
       tags: problemClusters.tags,
+      memberCount: problemClusters.memberCount,
     })
     .from(contributions)
     .leftJoin(contributionContent, eq(contributionContent.contributionId, contributions.id))
@@ -98,11 +99,16 @@ export default async function ProfilePage() {
                 )}
               </div>
               {row.problemTitle && (
-                <div className="text-sm font-medium mb-1">
-                  {row.problemTitle}
+                <div className="text-sm font-medium mb-1 flex items-center gap-2">
+                  <span>{row.problemTitle}</span>
                   {row.problemCategory && (
-                    <span className="ml-2 text-xs font-normal text-neutral-500">
+                    <span className="text-xs font-normal text-neutral-500">
                       {row.problemCategory}
+                    </span>
+                  )}
+                  {row.memberCount && row.memberCount > 1 && (
+                    <span className="text-[10px] font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                      {row.memberCount} people reported this
                     </span>
                   )}
                 </div>

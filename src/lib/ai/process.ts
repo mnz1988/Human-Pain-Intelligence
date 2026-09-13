@@ -1,20 +1,4 @@
-import OpenAI from "openai";
-
-// Swappable AI backend. Today: OpenAI cloud. Later: point baseURL at LM Studio
-// (e.g. http://localhost:1234/v1) via env vars, no call-site changes needed.
-let client: OpenAI | null = null;
-
-function getClient(): OpenAI {
-  if (!client) {
-    const baseURL = process.env.AI_BASE_URL;
-    console.log(`[ai] baseURL=${baseURL ?? "(default OpenAI)"}`);
-    client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY || "not-needed-for-lm-studio",
-      baseURL,
-    });
-  }
-  return client;
-}
+import { getAIClient } from "./client";
 
 const CONFIGURED_MODEL = process.env.AI_MODEL; // undefined -> auto-detect from server
 let resolvedModel: string | null = null;
@@ -30,7 +14,7 @@ async function getModel(): Promise<string> {
     return resolvedModel;
   }
 
-  const list = await getClient().models.list();
+  const list = await getAIClient().models.list();
   const first = list.data[0];
   if (!first) {
     throw new Error(
@@ -146,7 +130,7 @@ const RESPONSE_SCHEMA = {
 
 export async function processContribution(rawText: string): Promise<ProcessedContribution> {
   const model = await getModel();
-  const completion = await getClient().chat.completions.create({
+  const completion = await getAIClient().chat.completions.create({
     model,
     response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA },
     messages: [

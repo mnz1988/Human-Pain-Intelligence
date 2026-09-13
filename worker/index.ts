@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { createHmac } from "crypto";
 import { processContribution } from "../src/lib/ai/process";
+import { generateEmbedding } from "../src/lib/ai/embed";
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
@@ -53,9 +54,10 @@ async function submitResult(
   contributionId: string,
   success: boolean,
   result?: unknown,
+  embedding?: number[] | null,
   error?: string
 ) {
-  const body = JSON.stringify({ contributionId, success, result, error });
+  const body = JSON.stringify({ contributionId, success, result, embedding, error });
   const { timestamp, signature } = sign(body);
 
   const res = await fetch(new URL("/api/jobs/complete", SERVER_URL).toString(), {
@@ -71,7 +73,16 @@ async function submitResult(
   if (!res.ok) {
     console.error(`Failed to submit result for ${contributionId}:`, res.status, await res.text());
   } else {
-    console.log(`${success ? "✓ Processed" : "✗ Marked failed"}: ${contributionId}`);
+    const data = await res.json().catch(() => null);
+    if (success && data?.matchedExistingCluster) {
+      console.log(
+        `✓ Processed: ${contributionId} — merged into existing cluster ${data.problemId} (similarity ${Number(
+          data.similarity
+        ).toFixed(3)})`
+      );
+    } else {
+      console.log(`${success ? "✓ Processed" : "✗ Marked failed"}: ${contributionId}`);
+    }
   }
 }
 
@@ -87,11 +98,14 @@ async function processOnce() {
   for (const job of jobs) {
     try {
       const result = await processContribution(job.rawText);
-      await submitResult(job.contributionId, true, result);
+      const embedding = await generateEmbedding(
+        `${result.problem.title}. ${result.problem.summary}`
+      );
+      await submitResult(job.contributionId, true, result, embedding);
     } catch (err) {
       const message = err instanceof Error ? err.message : "unknown error";
       console.error(`Failed to process ${job.contributionId}:`, message);
-      await submitResult(job.contributionId, false, undefined, message);
+      await submitResult(job.contributionId, false, undefined, null, message);
     }
   }
 }

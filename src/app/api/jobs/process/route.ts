@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   try {
     await markProcessing(contributionId);
     const result = await processContribution(content.rawText);
-    const { problemId } = await saveProcessedResult(contributionId, result);
+    const { problemId } = await saveProcessedResult(contributionId, result, null);
     return NextResponse.json({ ok: true, problemId });
   } catch (err) {
     await markFailed(contributionId);

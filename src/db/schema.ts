@@ -4,6 +4,7 @@ import {
   varchar,
   numeric,
   integer,
+  doublePrecision,
   timestamp,
   text,
   boolean,
@@ -82,6 +83,8 @@ export const problemClusters = pgTable("problem_clusters", {
   perspective: varchar("perspective", { length: 20 }), // personal | secondhand | unclear
   geographicScope: varchar("geographic_scope", { length: 200 }), // country/region-level only, from text
   tags: text("tags").array(), // short topic tags, e.g. ["public_transport", "safety"]
+  embedding: doublePrecision("embedding").array(), // centroid embedding for similarity-based clustering
+  memberCount: integer("member_count").notNull().default(1),
   status: varchar("status", { length: 30 }).notNull().default("emerging"),
   confidenceScore: numeric("confidence_score", { precision: 5, scale: 2 }).default("0"),
   demandScore: numeric("demand_score", { precision: 5, scale: 2 }).default("0"),
