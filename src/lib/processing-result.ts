@@ -6,7 +6,7 @@ import {
   problemClusters,
   problemClusterMembers,
 } from "@/db/schema";
-import { eq, isNotNull, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, ne, isNotNull, desc, inArray, sql } from "drizzle-orm";
 import type { ProcessedContribution } from "@/lib/ai/process";
 
 const SIMILARITY_THRESHOLD = Number(process.env.CLUSTER_SIMILARITY_THRESHOLD) || 0.82;
@@ -31,10 +31,7 @@ export async function markFailed(contributionId: string) {
 
 /**
  * Removes exact-duplicate failed submissions from the same user (identical
- * raw text) before restoring, keeping only the earliest attempt. Without
- * this, retries during an outage would each get reprocessed and merged into
- * the same cluster, inflating its member/demand count with one person's
- * repeated attempts rather than genuinely distinct reports.
+ * raw text) before restoring, keeping only the earliest attempt.
  */
 export async function dedupeFailedSubmissions(): Promise<{ duplicateGroups: number; deleted: number }> {
   const result = await db.execute<{ ids: string[] }>(sql`
@@ -77,6 +74,30 @@ export async function requeueFailed(): Promise<{
     .returning({ id: contributions.id });
 
   return { duplicateGroups, duplicatesDeleted: deleted, requeued: rows.length };
+}
+
+/**
+ * Recomputes member_count/demand_score for every cluster from the actual
+ * number of DISTINCT reporting users among its current members — repairs
+ * drift from any past bug (or from redefining what member_count means).
+ */
+export async function recomputeClusterStats(): Promise<{ clustersUpdated: number }> {
+  const result = await db.execute<{ id: string; distinct_users: number }>(sql`
+    UPDATE problem_clusters pc
+    SET member_count = sub.distinct_users,
+        demand_score = sub.distinct_users::text,
+        updated_at = now()
+    FROM (
+      SELECT pcm.cluster_id, count(DISTINCT c.user_id) AS distinct_users
+      FROM problem_cluster_members pcm
+      JOIN contributions c ON c.id = pcm.contribution_id
+      GROUP BY pcm.cluster_id
+    ) sub
+    WHERE pc.id = sub.cluster_id
+    RETURNING pc.id
+  `);
+  const rows = result.rows ?? (result as unknown as { id: string }[]);
+  return { clustersUpdated: rows.length };
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -134,37 +155,73 @@ function averageEmbeddings(existing: number[], incoming: number[], existingCount
   return existing.map((value, i) => (value * n + incoming[i]) / (n + 1));
 }
 
+/** Does this user already have a different contribution in this cluster? */
+async function userAlreadyRepresented(
+  clusterId: string,
+  userId: string | null,
+  excludeContributionId?: string
+): Promise<boolean> {
+  if (!userId) return false;
+
+  const conditions = [
+    eq(problemClusterMembers.clusterId, clusterId),
+    eq(contributions.userId, userId),
+  ];
+  if (excludeContributionId) {
+    conditions.push(ne(problemClusterMembers.contributionId, excludeContributionId));
+  }
+
+  const [row] = await db
+    .select({ id: problemClusterMembers.contributionId })
+    .from(problemClusterMembers)
+    .innerJoin(contributions, eq(contributions.id, problemClusterMembers.contributionId))
+    .where(and(...conditions))
+    .limit(1);
+
+  return !!row;
+}
+
 /**
  * Undoes this contribution's prior cluster membership, if any — needed so
- * reprocessing a contribution (e.g. retrying a previously-failed job) doesn't
- * leave stale entities behind or inflate an old cluster's member count
- * alongside a new one.
+ * reprocessing a contribution doesn't leave stale entities behind or
+ * double-count its reporter in an old cluster alongside a new one. Only
+ * decrements member_count if this user isn't still represented by another
+ * contribution in that same cluster.
  */
-async function detachPriorMembership(contributionId: string): Promise<string | undefined> {
+async function detachPriorMembership(
+  contributionId: string,
+  userId: string | null
+): Promise<string | undefined> {
   const [existing] = await db
-    .select({
-      clusterId: problemClusterMembers.clusterId,
-      memberCount: problemClusters.memberCount,
-    })
+    .select({ clusterId: problemClusterMembers.clusterId })
     .from(problemClusterMembers)
-    .leftJoin(problemClusters, eq(problemClusters.id, problemClusterMembers.clusterId))
     .where(eq(problemClusterMembers.contributionId, contributionId))
     .limit(1);
 
   if (!existing?.clusterId) return undefined;
+  const clusterId = existing.clusterId;
 
-  const remaining = Math.max((existing.memberCount ?? 1) - 1, 0);
+  const stillRepresented = await userAlreadyRepresented(clusterId, userId, contributionId);
+  if (stillRepresented) return clusterId; // don't touch the count, this user still has another entry there
+
+  const [clusterRow] = await db
+    .select({ memberCount: problemClusters.memberCount })
+    .from(problemClusters)
+    .where(eq(problemClusters.id, clusterId))
+    .limit(1);
+  const currentCount = clusterRow?.memberCount ?? 1;
+  const remaining = Math.max(currentCount - 1, 0);
+
   if (remaining === 0) {
-    // This contribution was the only member — the cluster no longer represents anything.
-    await db.delete(problemClusters).where(eq(problemClusters.id, existing.clusterId));
+    await db.delete(problemClusters).where(eq(problemClusters.id, clusterId));
   } else {
     await db
       .update(problemClusters)
       .set({ memberCount: remaining, demandScore: String(remaining), updatedAt: new Date() })
-      .where(eq(problemClusters.id, existing.clusterId));
+      .where(eq(problemClusters.id, clusterId));
   }
 
-  return existing.clusterId;
+  return clusterId;
 }
 
 export async function saveProcessedResult(
@@ -172,6 +229,13 @@ export async function saveProcessedResult(
   result: ProcessedContribution,
   embedding: number[] | null
 ): Promise<{ problemId: string; matchedExistingCluster: boolean; similarity?: number }> {
+  const [contributionRow] = await db
+    .select({ userId: contributions.userId })
+    .from(contributions)
+    .where(eq(contributions.id, contributionId))
+    .limit(1);
+  const userId = contributionRow?.userId ?? null;
+
   await db
     .update(contributions)
     .set({ language: result.language })
@@ -188,7 +252,7 @@ export async function saveProcessedResult(
 
   // Idempotency: clear anything left over from a prior attempt at processing
   // this same contribution (retries, manual reprocessing of failed jobs).
-  const priorClusterId = await detachPriorMembership(contributionId);
+  const priorClusterId = await detachPriorMembership(contributionId, userId);
   await db.delete(contributionEntities).where(eq(contributionEntities.contributionId, contributionId));
 
   if (result.entities.length > 0) {
@@ -209,9 +273,12 @@ export async function saveProcessedResult(
   let similarity: number | undefined;
 
   if (match && embedding) {
-    // Join the existing cluster instead of creating a new one.
+    // Join the existing cluster instead of creating a new one. Always refine
+    // the centroid with the new text, but only count this as a new distinct
+    // reporter if this user isn't already represented in the cluster.
     const newEmbedding = averageEmbeddings(match.embedding, embedding, match.memberCount);
-    const newMemberCount = match.memberCount + 1;
+    const isNewReporter = !(await userAlreadyRepresented(match.id, userId));
+    const newMemberCount = isNewReporter ? match.memberCount + 1 : match.memberCount;
 
     await db
       .update(problemClusters)
