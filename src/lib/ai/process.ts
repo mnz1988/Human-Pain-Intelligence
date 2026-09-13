@@ -130,15 +130,34 @@ const RESPONSE_SCHEMA = {
 
 export async function processContribution(rawText: string): Promise<ProcessedContribution> {
   const model = await getModel();
-  const completion = await getAIClient().chat.completions.create({
+
+  // Qwen3-family models support a documented "/no_think" directive that skips
+  // their chain-of-thought reasoning pass — a large speed win for this
+  // extraction task, which doesn't need deep reasoning. Not all reasoning
+  // models support this (e.g. DeepSeek-R1-distill always reasons), so this
+  // only applies when the model name indicates Qwen3.
+  const isQwen3 = /qwen3/i.test(model);
+  const userContent = isQwen3 ? `${rawText}\n/no_think` : rawText;
+  if (isQwen3) {
+    console.log("[ai] Qwen3 model detected — appending /no_think to disable extended reasoning");
+  }
+
+  const requestBody = {
     model,
-    response_format: { type: "json_schema", json_schema: RESPONSE_SCHEMA },
+    response_format: { type: "json_schema" as const, json_schema: RESPONSE_SCHEMA },
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: rawText },
+      { role: "system" as const, content: SYSTEM_PROMPT },
+      { role: "user" as const, content: userContent },
     ],
     temperature: 0.2,
-  });
+    // Best-effort: some local serving backends (recent llama.cpp/vLLM builds)
+    // read this nested field to disable Qwen3 thinking mode directly, without
+    // relying on the /no_think text convention. Harmless if unsupported.
+    ...(isQwen3 ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const completion = await getAIClient().chat.completions.create(requestBody as any);
 
   const raw = completion.choices?.[0]?.message?.content;
   if (!raw) {
