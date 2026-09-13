@@ -8,7 +8,6 @@ import {
   timestamp,
   text,
   boolean,
-  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // 9.1 users — pseudonymous account, never exposes real identity
@@ -93,12 +92,10 @@ export const problemClusters = pgTable("problem_clusters", {
 });
 
 // 9.9 problem_cluster_members
-export const problemClusterMembers = pgTable(
-  "problem_cluster_members",
-  {
-    clusterId: uuid("cluster_id").references(() => problemClusters.id),
-    contributionId: uuid("contribution_id").references(() => contributions.id),
-    membershipConfidence: numeric("membership_confidence", { precision: 5, scale: 4 }),
-  },
-  (table) => [primaryKey({ columns: [table.clusterId, table.contributionId] })]
-);
+export const problemClusterMembers = pgTable("problem_cluster_members", {
+  contributionId: uuid("contribution_id")
+    .primaryKey()
+    .references(() => contributions.id),
+  clusterId: uuid("cluster_id").references(() => problemClusters.id),
+  membershipConfidence: numeric("membership_confidence", { precision: 5, scale: 4 }),
+});

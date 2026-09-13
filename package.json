@@ -10,7 +10,8 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "worker": "tsx worker/index.ts"
+    "worker": "tsx worker/index.ts",
+    "requeue-failed": "tsx worker/requeue-failed.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -21,7 +22,8 @@
     "next": "16.3.4",
     "openai": "^7.13.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "undici": "^8.10.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

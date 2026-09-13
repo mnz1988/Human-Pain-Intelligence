@@ -29,6 +29,16 @@ export async function markFailed(contributionId: string) {
     .where(eq(contributions.id, contributionId));
 }
 
+/** Resets every "failed" contribution back to "pending" so the worker picks it up again. */
+export async function requeueFailed(): Promise<number> {
+  const rows = await db
+    .update(contributions)
+    .set({ status: "pending" })
+    .where(eq(contributions.status, "failed"))
+    .returning({ id: contributions.id });
+  return rows.length;
+}
+
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
   let dot = 0;
@@ -44,7 +54,8 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 async function findBestMatchingCluster(
-  embedding: number[]
+  embedding: number[],
+  excludeClusterId?: string
 ): Promise<{ id: string; embedding: number[]; memberCount: number; similarity: number } | null> {
   const candidates = await db
     .select({
@@ -62,6 +73,7 @@ async function findBestMatchingCluster(
 
   for (const candidate of candidates) {
     if (!candidate.embedding) continue;
+    if (excludeClusterId && candidate.id === excludeClusterId) continue;
     const similarity = cosineSimilarity(embedding, candidate.embedding);
     if (similarity >= SIMILARITY_THRESHOLD && (!best || similarity > best.similarity)) {
       best = {
@@ -80,6 +92,39 @@ async function findBestMatchingCluster(
 function averageEmbeddings(existing: number[], incoming: number[], existingCount: number): number[] {
   const n = existingCount;
   return existing.map((value, i) => (value * n + incoming[i]) / (n + 1));
+}
+
+/**
+ * Undoes this contribution's prior cluster membership, if any — needed so
+ * reprocessing a contribution (e.g. retrying a previously-failed job) doesn't
+ * leave stale entities behind or inflate an old cluster's member count
+ * alongside a new one.
+ */
+async function detachPriorMembership(contributionId: string): Promise<string | undefined> {
+  const [existing] = await db
+    .select({
+      clusterId: problemClusterMembers.clusterId,
+      memberCount: problemClusters.memberCount,
+    })
+    .from(problemClusterMembers)
+    .leftJoin(problemClusters, eq(problemClusters.id, problemClusterMembers.clusterId))
+    .where(eq(problemClusterMembers.contributionId, contributionId))
+    .limit(1);
+
+  if (!existing?.clusterId) return undefined;
+
+  const remaining = Math.max((existing.memberCount ?? 1) - 1, 0);
+  if (remaining === 0) {
+    // This contribution was the only member — the cluster no longer represents anything.
+    await db.delete(problemClusters).where(eq(problemClusters.id, existing.clusterId));
+  } else {
+    await db
+      .update(problemClusters)
+      .set({ memberCount: remaining, demandScore: String(remaining), updatedAt: new Date() })
+      .where(eq(problemClusters.id, existing.clusterId));
+  }
+
+  return existing.clusterId;
 }
 
 export async function saveProcessedResult(
@@ -101,6 +146,11 @@ export async function saveProcessedResult(
     })
     .where(eq(contributionContent.contributionId, contributionId));
 
+  // Idempotency: clear anything left over from a prior attempt at processing
+  // this same contribution (retries, manual reprocessing of failed jobs).
+  const priorClusterId = await detachPriorMembership(contributionId);
+  await db.delete(contributionEntities).where(eq(contributionEntities.contributionId, contributionId));
+
   if (result.entities.length > 0) {
     await db.insert(contributionEntities).values(
       result.entities.map((e) => ({
@@ -112,7 +162,7 @@ export async function saveProcessedResult(
     );
   }
 
-  const match = embedding ? await findBestMatchingCluster(embedding) : null;
+  const match = embedding ? await findBestMatchingCluster(embedding, priorClusterId) : null;
 
   let clusterId: string;
   let matchedExistingCluster = false;
@@ -157,11 +207,17 @@ export async function saveProcessedResult(
     clusterId = cluster.id;
   }
 
-  await db.insert(problemClusterMembers).values({
-    clusterId,
-    contributionId,
-    membershipConfidence: similarity ? String(similarity) : "1.0",
-  });
+  await db
+    .insert(problemClusterMembers)
+    .values({
+      clusterId,
+      contributionId,
+      membershipConfidence: similarity ? String(similarity) : "1.0",
+    })
+    .onConflictDoUpdate({
+      target: problemClusterMembers.contributionId,
+      set: { clusterId, membershipConfidence: similarity ? String(similarity) : "1.0" },
+    });
 
   await db
     .update(contributions)
