@@ -153,6 +153,40 @@ export async function mergeOrEmbedCluster(
   return { merged: false };
 }
 
+/**
+ * Diagnostic: finds clusters whose title contains the given substring and
+ * reports pairwise cosine similarity between them, to debug why near-
+ * duplicate submissions did or didn't merge.
+ */
+export async function inspectClustersByTitle(titleContains: string): Promise<{
+  clusters: Array<{ id: string; title: string; hasEmbedding: boolean }>;
+  similarities: Array<{ a: string; b: string; similarity: number }>;
+}> {
+  const rows = await db
+    .select({
+      id: problemClusters.id,
+      title: problemClusters.title,
+      embedding: problemClusters.embedding,
+    })
+    .from(problemClusters)
+    .where(sql`${problemClusters.title} ILIKE ${"%" + titleContains + "%"}`);
+
+  const similarities: Array<{ a: string; b: string; similarity: number }> = [];
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = i + 1; j < rows.length; j++) {
+      const a = rows[i];
+      const b = rows[j];
+      if (!a.embedding || !b.embedding) continue;
+      similarities.push({ a: a.id, b: b.id, similarity: cosineSimilarity(a.embedding, b.embedding) });
+    }
+  }
+
+  return {
+    clusters: rows.map((r) => ({ id: r.id, title: r.title, hasEmbedding: !!r.embedding })),
+    similarities,
+  };
+}
+
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
   let dot = 0;
