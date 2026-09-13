@@ -1,10 +1,11 @@
 import { getAIClient } from "./client";
 
-const CONFIGURED_MODEL = process.env.AI_MODEL; // undefined -> auto-detect from server
 let resolvedModel: string | null = null;
 
 async function getModel(): Promise<string> {
-  if (CONFIGURED_MODEL) return CONFIGURED_MODEL;
+  // Read lazily, not at module-import time — see the comment in embed.ts for why.
+  const configuredModel = process.env.AI_MODEL;
+  if (configuredModel) return configuredModel;
   if (resolvedModel) return resolvedModel;
 
   if (!process.env.AI_BASE_URL) {
