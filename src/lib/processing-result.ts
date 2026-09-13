@@ -85,7 +85,7 @@ export async function recomputeClusterStats(): Promise<{ clustersUpdated: number
   const result = await db.execute<{ id: string; distinct_users: number }>(sql`
     UPDATE problem_clusters pc
     SET member_count = sub.distinct_users,
-        demand_score = sub.distinct_users::text,
+        demand_score = sub.distinct_users,
         updated_at = now()
     FROM (
       SELECT pcm.cluster_id, count(DISTINCT c.user_id) AS distinct_users
@@ -202,7 +202,15 @@ async function detachPriorMembership(
   const clusterId = existing.clusterId;
 
   const stillRepresented = await userAlreadyRepresented(clusterId, userId, contributionId);
-  if (stillRepresented) return clusterId; // don't touch the count, this user still has another entry there
+
+  // Remove this contribution's own membership row now (the caller inserts a
+  // fresh one afterward) — must happen before any cluster deletion below, or
+  // the foreign key from this row would block it.
+  await db
+    .delete(problemClusterMembers)
+    .where(eq(problemClusterMembers.contributionId, contributionId));
+
+  if (stillRepresented) return clusterId; // this user still has another entry there — don't touch the count
 
   const [clusterRow] = await db
     .select({ memberCount: problemClusters.memberCount })
@@ -213,6 +221,7 @@ async function detachPriorMembership(
   const remaining = Math.max(currentCount - 1, 0);
 
   if (remaining === 0) {
+    // No other distinct reporters left — safe to delete now that this row is gone.
     await db.delete(problemClusters).where(eq(problemClusters.id, clusterId));
   } else {
     await db

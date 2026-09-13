@@ -12,6 +12,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: auth.error }, { status: 401 });
   }
 
-  const result = await recomputeClusterStats();
-  return NextResponse.json({ ok: true, ...result });
+  try {
+    const result = await recomputeClusterStats();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("recompute-stats failed:", err);
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "unknown error" },
+      { status: 500 }
+    );
+  }
 }
