@@ -100,6 +100,59 @@ export async function recomputeClusterStats(): Promise<{ clustersUpdated: number
   return { clustersUpdated: rows.length };
 }
 
+/**
+ * Finds clusters created before embeddings were working (or before
+ * EMBEDDING_MODEL was configured correctly) — they never got a chance to
+ * match against anything, so near-duplicate submissions from that period
+ * ended up as separate singleton clusters instead of merging.
+ */
+export async function getClustersMissingEmbedding(): Promise<
+  Array<{ id: string; title: string; summary: string | null }>
+> {
+  return db
+    .select({ id: problemClusters.id, title: problemClusters.title, summary: problemClusters.summary })
+    .from(problemClusters)
+    .where(sql`${problemClusters.embedding} IS NULL`)
+    .orderBy(problemClusters.createdAt);
+}
+
+/**
+ * Backfills a cluster's embedding. If it now matches an existing (embedded)
+ * cluster above the similarity threshold, merges into it instead — reassigns
+ * all its members and deletes the now-empty duplicate. Otherwise just saves
+ * the embedding so future clusters/backfills can match against it.
+ */
+export async function mergeOrEmbedCluster(
+  clusterId: string,
+  embedding: number[]
+): Promise<{ merged: boolean; mergedInto?: string; similarity?: number }> {
+  const match = await findBestMatchingCluster(embedding, clusterId);
+
+  if (match) {
+    await db
+      .update(problemClusterMembers)
+      .set({ clusterId: match.id })
+      .where(eq(problemClusterMembers.clusterId, clusterId));
+
+    const newEmbedding = averageEmbeddings(match.embedding, embedding, match.memberCount);
+    await db
+      .update(problemClusters)
+      .set({ embedding: newEmbedding, updatedAt: new Date() })
+      .where(eq(problemClusters.id, match.id));
+
+    await db.delete(problemClusters).where(eq(problemClusters.id, clusterId));
+
+    return { merged: true, mergedInto: match.id, similarity: match.similarity };
+  }
+
+  await db
+    .update(problemClusters)
+    .set({ embedding, updatedAt: new Date() })
+    .where(eq(problemClusters.id, clusterId));
+
+  return { merged: false };
+}
+
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
   let dot = 0;

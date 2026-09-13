@@ -12,7 +12,8 @@
     "db:studio": "drizzle-kit studio",
     "worker": "tsx worker/index.ts",
     "requeue-failed": "tsx worker/requeue-failed.ts",
-    "recompute-stats": "tsx worker/recompute-stats.ts"
+    "recompute-stats": "tsx worker/recompute-stats.ts",
+    "backfill-embeddings": "tsx worker/backfill-embeddings.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
