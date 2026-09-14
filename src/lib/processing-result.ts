@@ -348,7 +348,7 @@ export async function saveProcessedResult(
 
   // Idempotency: clear anything left over from a prior attempt at processing
   // this same contribution (retries, manual reprocessing of failed jobs).
-  const priorClusterId = await detachPriorMembership(contributionId, userId);
+  await detachPriorMembership(contributionId, userId);
   await db.delete(contributionEntities).where(eq(contributionEntities.contributionId, contributionId));
 
   if (result.entities.length > 0) {
@@ -362,7 +362,12 @@ export async function saveProcessedResult(
     );
   }
 
-  const match = embedding ? await findBestMatchingCluster(embedding, priorClusterId) : null;
+  // Note: no exclusion of the prior cluster here — detachPriorMembership
+  // already removed this contribution's own membership row above, so there's
+  // no self-matching risk. If the prior cluster still exists (because another
+  // duplicate merged into it earlier in a batch reprocess), it's a perfectly
+  // legitimate candidate to rejoin.
+  const match = embedding ? await findBestMatchingCluster(embedding) : null;
 
   let clusterId: string;
   let matchedExistingCluster = false;
