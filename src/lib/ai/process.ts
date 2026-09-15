@@ -54,6 +54,7 @@ export interface ProcessedContribution {
     willingnessToPay: boolean; // does the text mention money/cost/paying for a fix
     existingAlternatives: string[]; // named tools/services/workarounds already tried, if any
     impactSeverity: "negligible" | "moderate" | "significant" | "severe";
+    descriptionQuality: number; // 0-1, how specific/clear/useful this description is (not length-based)
   };
   entities: Array<{
     entityType: string;
@@ -88,6 +89,7 @@ const SYSTEM_PROMPT = `You process an anonymous, first-person complaint or probl
    - willingnessToPay: true only if the text itself mentions money, cost, or willingness to pay for a solution
    - existingAlternatives: any tools, services, or workarounds the author explicitly says they already tried. Empty array if none mentioned. Never invent these.
    - impactSeverity: "negligible", "moderate", "significant", or "severe" — a rough bucket for how much this affects the author's life, based only on what the text conveys. Never output a specific dollar figure or number you cannot know.
+   - descriptionQuality: a score from 0 to 1 for how SPECIFIC, CLEAR, and USEFUL this description is as a representation of the underlying problem — not how long or eloquent it is. A short but concrete, specific account scores higher than a long but vague or repetitive one. Consider: does it give enough detail that someone unfamiliar with the situation could understand what's actually happening and why it matters?
 
 4. IDENTIFY entities mentioned (type one of: product, company, service, location, technology, institution, problem_type) with a normalized value and your confidence (0-1) that the entity is correctly identified. Do not include personally identifying entities (individual people's names) here — this is for organizations/products/places/topics only.
 
@@ -148,6 +150,7 @@ const RESPONSE_SCHEMA = {
             type: "string",
             enum: ["negligible", "moderate", "significant", "severe"],
           },
+          descriptionQuality: { type: "number" },
         },
         required: [
           "title",
@@ -171,6 +174,7 @@ const RESPONSE_SCHEMA = {
           "willingnessToPay",
           "existingAlternatives",
           "impactSeverity",
+          "descriptionQuality",
         ],
         additionalProperties: false,
       },
