@@ -37,9 +37,24 @@ export interface ProcessedContribution {
     primaryCategory: string;
     secondaryCategory: string | null;
     urgency: "low" | "medium" | "high";
-    perspective: "personal" | "secondhand" | "unclear"; // is the author living this, or reporting on others?
-    geographicScope: string | null; // country or region-level only, e.g. "Iran", "Isfahan, Iran" — never a street address, taken only from what the author already wrote
-    tags: string[]; // up to 5 short topic tags, lowercase_snake_case
+    perspective: "personal" | "secondhand" | "unclear";
+    geographicScope: string | null;
+    tags: string[];
+    // --- Phase 1 additions ---
+    scale: "individual" | "group" | "mass" | "unclear"; // how many people the text itself suggests are affected
+    durationPattern: "one_time" | "recurring" | "ongoing_chronic" | "unclear";
+    genderSpecificTopic: boolean; // is the PROBLEM ITSELF about a gender-specific issue (not a guess about the submitter)
+    affectedParty: "self" | "named_other" | "group" | "unclear";
+    trend: "worsening" | "improving" | "stable" | "unclear";
+    submitterConfidence: "stated_fact" | "inferred_guess" | "uncertain";
+    emotions: string[]; // up to 3 short emotion words, e.g. ["frustration", "resignation"]
+    tradeoff: { benefit: string; cost: string } | null; // e.g. benefit "flexibility", cost "isolation"
+    underlyingNeed: string | null; // hedged hypothesis, not a claimed fact
+    actionable: boolean; // could a product/service/policy realistically address this, vs pure venting
+    willingnessToPay: boolean; // does the text mention money/cost/paying for a fix
+    existingAlternatives: string[]; // named tools/services/workarounds already tried, if any
+    impactSeverity: "negligible" | "moderate" | "significant" | "severe";
+    descriptionQuality: number; // 0-1, how specific/clear/useful this description is (not length-based)
   };
   entities: Array<{
     entityType: string;
@@ -59,23 +74,28 @@ const SYSTEM_PROMPT = `You process an anonymous, first-person complaint or probl
    - a primary category (single word or short phrase, e.g. "healthcare", "employment", "housing", "consumer_finance", "government_services", "technology", "transportation", "public_safety", "other"), plus an optional secondary category
    - urgency: "low", "medium", or "high" based on how severe/time-critical the situation sounds
    - perspective: "personal" if the author is describing their own direct experience, "secondhand" if they're reporting on someone else's situation, "unclear" if it can't be determined
-   - geographicScope: ONLY if the author explicitly names a place in their text, report it at country or region/city level (e.g. "Iran", "Isfahan, Iran"). Never invent a location, never narrow it beyond what the author stated, never include street-level detail. Use null if no location is mentioned.
-   - tags: up to 5 short lowercase_snake_case topic tags capturing themes beyond the primary category (e.g. ["curfew", "public_transport", "safety_concern"])
+   - geographicScope: ONLY if the author explicitly names a place in their text, report it at country or region/city level. Never invent a location, never narrow it beyond what the author stated, never include street-level detail. Use null if no location is mentioned.
+   - tags: up to 5 short lowercase_snake_case topic tags capturing themes beyond the primary category
+   - scale: does the text itself suggest this affects just the author ("individual"), a specific group they describe ("group"), or a broad population ("mass")? Use "unclear" if not indicated.
+   - durationPattern: "one_time" (a single incident), "recurring" (happens repeatedly), "ongoing_chronic" (a continuous, unresolved state), or "unclear"
+   - genderSpecificTopic: true only if the PROBLEM ITSELF inherently concerns a gender-specific issue (e.g. maternity leave, gendered dress-code enforcement, gender-based discrimination). This is about the topic, never a guess about the author's own gender or identity.
+   - affectedParty: "self" (author is the one harmed), "named_other" (author describes a specific other person being harmed), "group" (a described group is harmed), or "unclear"
+   - trend: "worsening", "improving", "stable", or "unclear" based on whether the author indicates this is getting better, worse, or staying the same
+   - submitterConfidence: "stated_fact" if the author speaks with certainty/firsthand knowledge, "inferred_guess" if they hedge ("I think", "probably"), "uncertain" if genuinely ambiguous
+   - emotions: up to 3 short single-word emotions clearly present in the text (e.g. "frustration", "fear", "hope", "anger", "resignation"). Empty array if none are clearly expressed.
+   - tradeoff: if the author describes a benefit-vs-cost tension (e.g. "remote work gives me flexibility but I feel isolated"), capture it as {benefit, cost} in a few words each. Use null if no such tradeoff is present — do not invent one.
+   - underlyingNeed: a SHORT, HEDGED hypothesis about what the author may actually need beyond their stated complaint (e.g. "may need affordable childcare, not just a longer commute"). Phrase it tentatively. Use null if you cannot infer one responsibly from the text.
+   - actionable: true if this is the kind of problem a product, service, or policy change could realistically address; false if it's purely personal/emotional with no addressable angle
+   - willingnessToPay: true only if the text itself mentions money, cost, or willingness to pay for a solution
+   - existingAlternatives: any tools, services, or workarounds the author explicitly says they already tried. Empty array if none mentioned. Never invent these.
+   - impactSeverity: "negligible", "moderate", "significant", or "severe" — a rough bucket for how much this affects the author's life, based only on what the text conveys. Never output a specific dollar figure or number you cannot know.
+   - descriptionQuality: a score from 0 to 1 for how SPECIFIC, CLEAR, and USEFUL this description is as a representation of the underlying problem — not how long or eloquent it is. A short but concrete, specific account scores higher than a long but vague or repetitive one. Consider: does it give enough detail that someone unfamiliar with the situation could understand what's actually happening and why it matters?
 
 4. IDENTIFY entities mentioned (type one of: product, company, service, location, technology, institution, problem_type) with a normalized value and your confidence (0-1) that the entity is correctly identified. Do not include personally identifying entities (individual people's names) here — this is for organizations/products/places/topics only.
 
-Respond ONLY with JSON matching this exact shape, no markdown fences, no commentary:
-{
-  "language": string,
-  "sanitizedText": string,
-  "privacyRiskScore": number,
-  "problem": {
-    "title": string, "summary": string, "primaryCategory": string, "secondaryCategory": string | null,
-    "urgency": "low" | "medium" | "high", "perspective": "personal" | "secondhand" | "unclear",
-    "geographicScope": string | null, "tags": string[]
-  },
-  "entities": [ { "entityType": string, "normalizedValue": string, "confidence": number } ]
-}`;
+Do not guess or infer the author's own age, income, occupation, education level, immigration status, or other personal demographic attributes anywhere in your response — this is never requested and must never be included.
+
+Respond ONLY with JSON matching the required schema, no markdown fences, no commentary.`;
 
 const RESPONSE_SCHEMA = {
   name: "processed_contribution",
@@ -97,6 +117,40 @@ const RESPONSE_SCHEMA = {
           perspective: { type: "string", enum: ["personal", "secondhand", "unclear"] },
           geographicScope: { type: ["string", "null"] },
           tags: { type: "array", items: { type: "string" } },
+          scale: { type: "string", enum: ["individual", "group", "mass", "unclear"] },
+          durationPattern: {
+            type: "string",
+            enum: ["one_time", "recurring", "ongoing_chronic", "unclear"],
+          },
+          genderSpecificTopic: { type: "boolean" },
+          affectedParty: {
+            type: "string",
+            enum: ["self", "named_other", "group", "unclear"],
+          },
+          trend: { type: "string", enum: ["worsening", "improving", "stable", "unclear"] },
+          submitterConfidence: {
+            type: "string",
+            enum: ["stated_fact", "inferred_guess", "uncertain"],
+          },
+          emotions: { type: "array", items: { type: "string" } },
+          tradeoff: {
+            type: ["object", "null"],
+            properties: {
+              benefit: { type: "string" },
+              cost: { type: "string" },
+            },
+            required: ["benefit", "cost"],
+            additionalProperties: false,
+          },
+          underlyingNeed: { type: ["string", "null"] },
+          actionable: { type: "boolean" },
+          willingnessToPay: { type: "boolean" },
+          existingAlternatives: { type: "array", items: { type: "string" } },
+          impactSeverity: {
+            type: "string",
+            enum: ["negligible", "moderate", "significant", "severe"],
+          },
+          descriptionQuality: { type: "number" },
         },
         required: [
           "title",
@@ -107,6 +161,20 @@ const RESPONSE_SCHEMA = {
           "perspective",
           "geographicScope",
           "tags",
+          "scale",
+          "durationPattern",
+          "genderSpecificTopic",
+          "affectedParty",
+          "trend",
+          "submitterConfidence",
+          "emotions",
+          "tradeoff",
+          "underlyingNeed",
+          "actionable",
+          "willingnessToPay",
+          "existingAlternatives",
+          "impactSeverity",
+          "descriptionQuality",
         ],
         additionalProperties: false,
       },

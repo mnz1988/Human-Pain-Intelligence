@@ -82,6 +82,21 @@ export const problemClusters = pgTable("problem_clusters", {
   perspective: varchar("perspective", { length: 20 }), // personal | secondhand | unclear
   geographicScope: varchar("geographic_scope", { length: 200 }), // country/region-level only, from text
   tags: text("tags").array(), // short topic tags, e.g. ["public_transport", "safety"]
+  scale: varchar("scale", { length: 20 }), // individual | group | mass | unclear
+  durationPattern: varchar("duration_pattern", { length: 20 }), // one_time | recurring | ongoing_chronic | unclear
+  genderSpecificTopic: boolean("gender_specific_topic").default(false),
+  affectedParty: varchar("affected_party", { length: 20 }), // self | named_other | group | unclear
+  trend: varchar("trend", { length: 20 }), // worsening | improving | stable | unclear
+  submitterConfidence: varchar("submitter_confidence", { length: 20 }), // stated_fact | inferred_guess | uncertain
+  emotions: text("emotions").array(), // up to 3 short emotion words
+  tradeoffBenefit: text("tradeoff_benefit"),
+  tradeoffCost: text("tradeoff_cost"),
+  underlyingNeed: text("underlying_need"), // hedged hypothesis, not a claimed fact
+  actionable: boolean("actionable"),
+  willingnessToPay: boolean("willingness_to_pay"),
+  existingAlternatives: text("existing_alternatives").array(),
+  impactSeverity: varchar("impact_severity", { length: 20 }), // negligible | moderate | significant | severe
+  canonicalQuality: numeric("canonical_quality", { precision: 5, scale: 4 }), // descriptionQuality of the submission currently used as this cluster's title/summary/tags
   embedding: doublePrecision("embedding").array(), // centroid embedding for similarity-based clustering
   memberCount: integer("member_count").notNull().default(1),
   status: varchar("status", { length: 30 }).notNull().default("emerging"),
