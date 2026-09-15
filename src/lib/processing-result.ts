@@ -204,37 +204,20 @@ function cosineSimilarity(a: number[], b: number[]): number {
 async function findBestMatchingCluster(
   embedding: number[],
   excludeClusterId?: string
-): Promise<
-  | {
-      id: string;
-      embedding: number[];
-      memberCount: number;
-      similarity: number;
-      canonicalQuality: number;
-    }
-  | null
-> {
+): Promise<{ id: string; embedding: number[]; memberCount: number; similarity: number } | null> {
   const candidates = await db
     .select({
       id: problemClusters.id,
       embedding: problemClusters.embedding,
       memberCount: problemClusters.memberCount,
-      canonicalQuality: problemClusters.canonicalQuality,
     })
     .from(problemClusters)
     .where(isNotNull(problemClusters.embedding))
     .orderBy(desc(problemClusters.updatedAt))
     .limit(MAX_CANDIDATE_CLUSTERS);
 
-  let best:
-    | {
-        id: string;
-        embedding: number[];
-        memberCount: number;
-        similarity: number;
-        canonicalQuality: number;
-      }
-    | null = null;
+  let best: { id: string; embedding: number[]; memberCount: number; similarity: number } | null =
+    null;
 
   for (const candidate of candidates) {
     if (!candidate.embedding) continue;
@@ -246,7 +229,6 @@ async function findBestMatchingCluster(
         embedding: candidate.embedding,
         memberCount: candidate.memberCount,
         similarity,
-        canonicalQuality: Number(candidate.canonicalQuality ?? 0),
       };
     }
   }
@@ -399,42 +381,31 @@ export async function saveProcessedResult(
     const isNewReporter = !(await userAlreadyRepresented(match.id, userId));
     const newMemberCount = isNewReporter ? match.memberCount + 1 : match.memberCount;
 
-    // Only replace the cluster's canonical title/summary/tags/etc. if this
-    // submission is a clearer, more specific description than whatever is
-    // currently representing the cluster — not just because it's newest.
-    const isBetterDescription = result.problem.descriptionQuality > match.canonicalQuality;
-
     await db
       .update(problemClusters)
       .set({
         embedding: newEmbedding,
         memberCount: newMemberCount,
         demandScore: String(newMemberCount),
+        // Refresh descriptive fields from this latest analysis — near-duplicate
+        // merges should have very similar values anyway, and this keeps the
+        // cluster reflecting the most recent extraction pass rather than
+        // permanently freezing whatever the first-ever member happened to say.
+        scale: result.problem.scale,
+        durationPattern: result.problem.durationPattern,
+        genderSpecificTopic: result.problem.genderSpecificTopic,
+        affectedParty: result.problem.affectedParty,
+        trend: result.problem.trend,
+        submitterConfidence: result.problem.submitterConfidence,
+        emotions: result.problem.emotions,
+        tradeoffBenefit: result.problem.tradeoff?.benefit ?? null,
+        tradeoffCost: result.problem.tradeoff?.cost ?? null,
+        underlyingNeed: result.problem.underlyingNeed ?? null,
+        actionable: result.problem.actionable,
+        willingnessToPay: result.problem.willingnessToPay,
+        existingAlternatives: result.problem.existingAlternatives,
+        impactSeverity: result.problem.impactSeverity,
         updatedAt: new Date(),
-        ...(isBetterDescription
-          ? {
-              title: result.problem.title,
-              summary: result.problem.summary,
-              primaryCategory: result.problem.primaryCategory,
-              secondaryCategory: result.problem.secondaryCategory ?? null,
-              tags: result.problem.tags,
-              scale: result.problem.scale,
-              durationPattern: result.problem.durationPattern,
-              genderSpecificTopic: result.problem.genderSpecificTopic,
-              affectedParty: result.problem.affectedParty,
-              trend: result.problem.trend,
-              submitterConfidence: result.problem.submitterConfidence,
-              emotions: result.problem.emotions,
-              tradeoffBenefit: result.problem.tradeoff?.benefit ?? null,
-              tradeoffCost: result.problem.tradeoff?.cost ?? null,
-              underlyingNeed: result.problem.underlyingNeed ?? null,
-              actionable: result.problem.actionable,
-              willingnessToPay: result.problem.willingnessToPay,
-              existingAlternatives: result.problem.existingAlternatives,
-              impactSeverity: result.problem.impactSeverity,
-              canonicalQuality: String(result.problem.descriptionQuality),
-            }
-          : {}),
       })
       .where(eq(problemClusters.id, match.id));
 
@@ -467,7 +438,6 @@ export async function saveProcessedResult(
         willingnessToPay: result.problem.willingnessToPay,
         existingAlternatives: result.problem.existingAlternatives,
         impactSeverity: result.problem.impactSeverity,
-        canonicalQuality: String(result.problem.descriptionQuality),
         embedding: embedding ?? undefined,
         memberCount: 1,
         demandScore: "1",

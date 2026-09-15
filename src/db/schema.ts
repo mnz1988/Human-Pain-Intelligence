@@ -96,7 +96,6 @@ export const problemClusters = pgTable("problem_clusters", {
   willingnessToPay: boolean("willingness_to_pay"),
   existingAlternatives: text("existing_alternatives").array(),
   impactSeverity: varchar("impact_severity", { length: 20 }), // negligible | moderate | significant | severe
-  canonicalQuality: numeric("canonical_quality", { precision: 5, scale: 4 }), // descriptionQuality of the submission currently used as this cluster's title/summary/tags
   embedding: doublePrecision("embedding").array(), // centroid embedding for similarity-based clustering
   memberCount: integer("member_count").notNull().default(1),
   status: varchar("status", { length: 30 }).notNull().default("emerging"),

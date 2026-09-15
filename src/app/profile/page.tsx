@@ -41,7 +41,6 @@ export default async function ProfilePage() {
   const rows = await db
     .select({
       id: contributions.id,
-      clusterId: problemClusters.id,
       status: contributions.status,
       createdAt: contributions.createdAt,
       language: contributions.language,
@@ -64,27 +63,6 @@ export default async function ProfilePage() {
     .leftJoin(problemClusters, eq(problemClusters.id, problemClusterMembers.clusterId))
     .where(eq(contributions.userId, userId))
     .orderBy(desc(contributions.createdAt));
-
-  // Group this user's own submissions by cluster — someone who submitted the
-  // same problem 4 times should see one card with a "submitted 4 times" count,
-  // not 4 duplicate-looking cards. Submissions with no cluster yet (still
-  // pending/failed) each stay as their own group, keyed by their own id.
-  const groups = new Map<string, typeof rows>();
-  for (const row of rows) {
-    const key = row.clusterId ?? row.id;
-    const existing = groups.get(key);
-    if (existing) {
-      existing.push(row);
-    } else {
-      groups.set(key, [row]);
-    }
-  }
-  // rows are already ordered newest-first, so each group's first entry is its
-  // most recent submission — use that as the representative card.
-  const cards = Array.from(groups.values()).map((group) => ({
-    ...group[0],
-    submissionCount: group.length,
-  }));
 
   const urgencyStyles: Record<string, string> = {
     high: "bg-red-100 text-red-700",
@@ -113,11 +91,11 @@ export default async function ProfilePage() {
       </p>
 
       <h2 className="text-sm font-medium text-neutral-700 mb-3">Your submissions</h2>
-      {cards.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-sm text-neutral-500">Nothing submitted yet.</p>
       ) : (
         <ul className="space-y-3">
-          {cards.map((row) => (
+          {rows.map((row) => (
             <li key={row.id} className="rounded-md border border-neutral-200 p-3">
               <div className="text-xs text-neutral-500 mb-1 flex items-center gap-2 flex-wrap">
                 <span>{row.status}</span>
@@ -135,11 +113,6 @@ export default async function ProfilePage() {
                     }`}
                   >
                     {row.urgency} urgency
-                  </span>
-                )}
-                {row.submissionCount > 1 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500">
-                    you submitted this {row.submissionCount}×
                   </span>
                 )}
               </div>
