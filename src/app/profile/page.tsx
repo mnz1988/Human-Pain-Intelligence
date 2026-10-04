@@ -79,8 +79,6 @@ export default async function ProfilePage() {
       groups.set(key, [row]);
     }
   }
-  // rows are already ordered newest-first, so each group's first entry is its
-  // most recent submission — use that as the representative card.
   const cards = Array.from(groups.values()).map((group) => ({
     ...group[0],
     submissionCount: group.length,

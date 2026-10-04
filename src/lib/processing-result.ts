@@ -10,9 +10,6 @@ import { eq, and, ne, isNotNull, desc, inArray, sql } from "drizzle-orm";
 import type { ProcessedContribution } from "@/lib/ai/process";
 
 const SIMILARITY_THRESHOLD = Number(process.env.CLUSTER_SIMILARITY_THRESHOLD) || 0.82;
-// How many recent clusters to compare against. Fine for early-stage volume;
-// migrating to pgvector + an ANN index is the natural next step once this
-// table gets large enough that fetching all embeddings becomes expensive.
 const MAX_CANDIDATE_CLUSTERS = 500;
 
 export async function markProcessing(contributionId: string) {
@@ -29,10 +26,6 @@ export async function markFailed(contributionId: string) {
     .where(eq(contributions.id, contributionId));
 }
 
-/**
- * Removes exact-duplicate failed submissions from the same user (identical
- * raw text) before restoring, keeping only the earliest attempt.
- */
 export async function dedupeFailedSubmissions(): Promise<{ duplicateGroups: number; deleted: number }> {
   const result = await db.execute<{ ids: string[] }>(sql`
     SELECT array_agg(c.id ORDER BY c.created_at) AS ids
@@ -48,7 +41,7 @@ export async function dedupeFailedSubmissions(): Promise<{ duplicateGroups: numb
 
   for (const row of rows) {
     const ids = row.ids;
-    const idsToDelete = ids.slice(1); // keep the earliest, drop the rest
+    const idsToDelete = ids.slice(1);
     if (idsToDelete.length === 0) continue;
 
     await db.delete(contributionContent).where(inArray(contributionContent.contributionId, idsToDelete));
@@ -59,7 +52,6 @@ export async function dedupeFailedSubmissions(): Promise<{ duplicateGroups: numb
   return { duplicateGroups: rows.length, deleted };
 }
 
-/** Resets every "failed" contribution back to "pending" so the worker picks it up again. */
 export async function requeueFailed(): Promise<{
   duplicateGroups: number;
   duplicatesDeleted: number;
@@ -76,11 +68,6 @@ export async function requeueFailed(): Promise<{
   return { duplicateGroups, duplicatesDeleted: deleted, requeued: rows.length };
 }
 
-/**
- * Recomputes member_count/demand_score for every cluster from the actual
- * number of DISTINCT reporting users among its current members — repairs
- * drift from any past bug (or from redefining what member_count means).
- */
 export async function recomputeClusterStats(): Promise<{ clustersUpdated: number }> {
   const result = await db.execute<{ id: string; distinct_users: number }>(sql`
     UPDATE problem_clusters pc
@@ -100,12 +87,6 @@ export async function recomputeClusterStats(): Promise<{ clustersUpdated: number
   return { clustersUpdated: rows.length };
 }
 
-/**
- * Finds clusters created before embeddings were working (or before
- * EMBEDDING_MODEL was configured correctly) — they never got a chance to
- * match against anything, so near-duplicate submissions from that period
- * ended up as separate singleton clusters instead of merging.
- */
 export async function getClustersMissingEmbedding(): Promise<
   Array<{ id: string; title: string; summary: string | null }>
 > {
@@ -116,12 +97,6 @@ export async function getClustersMissingEmbedding(): Promise<
     .orderBy(problemClusters.createdAt);
 }
 
-/**
- * Backfills a cluster's embedding. If it now matches an existing (embedded)
- * cluster above the similarity threshold, merges into it instead — reassigns
- * all its members and deletes the now-empty duplicate. Otherwise just saves
- * the embedding so future clusters/backfills can match against it.
- */
 export async function mergeOrEmbedCluster(
   clusterId: string,
   embedding: number[]
@@ -153,11 +128,6 @@ export async function mergeOrEmbedCluster(
   return { merged: false };
 }
 
-/**
- * Diagnostic: finds clusters whose title contains the given substring and
- * reports pairwise cosine similarity between them, to debug why near-
- * duplicate submissions did or didn't merge.
- */
 export async function inspectClustersByTitle(titleContains: string): Promise<{
   clusters: Array<{ id: string; title: string; hasEmbedding: boolean }>;
   similarities: Array<{ a: string; b: string; similarity: number }>;
@@ -254,13 +224,11 @@ async function findBestMatchingCluster(
   return best;
 }
 
-// Running average: new centroid = (old * n + new) / (n + 1)
 function averageEmbeddings(existing: number[], incoming: number[], existingCount: number): number[] {
   const n = existingCount;
   return existing.map((value, i) => (value * n + incoming[i]) / (n + 1));
 }
 
-/** Does this user already have a different contribution in this cluster? */
 async function userAlreadyRepresented(
   clusterId: string,
   userId: string | null,
@@ -286,13 +254,6 @@ async function userAlreadyRepresented(
   return !!row;
 }
 
-/**
- * Undoes this contribution's prior cluster membership, if any — needed so
- * reprocessing a contribution doesn't leave stale entities behind or
- * double-count its reporter in an old cluster alongside a new one. Only
- * decrements member_count if this user isn't still represented by another
- * contribution in that same cluster.
- */
 async function detachPriorMembership(
   contributionId: string,
   userId: string | null
@@ -308,14 +269,11 @@ async function detachPriorMembership(
 
   const stillRepresented = await userAlreadyRepresented(clusterId, userId, contributionId);
 
-  // Remove this contribution's own membership row now (the caller inserts a
-  // fresh one afterward) — must happen before any cluster deletion below, or
-  // the foreign key from this row would block it.
   await db
     .delete(problemClusterMembers)
     .where(eq(problemClusterMembers.contributionId, contributionId));
 
-  if (stillRepresented) return clusterId; // this user still has another entry there — don't touch the count
+  if (stillRepresented) return clusterId;
 
   const [clusterRow] = await db
     .select({ memberCount: problemClusters.memberCount })
@@ -326,7 +284,6 @@ async function detachPriorMembership(
   const remaining = Math.max(currentCount - 1, 0);
 
   if (remaining === 0) {
-    // No other distinct reporters left — safe to delete now that this row is gone.
     await db.delete(problemClusters).where(eq(problemClusters.id, clusterId));
   } else {
     await db
@@ -364,8 +321,6 @@ export async function saveProcessedResult(
     })
     .where(eq(contributionContent.contributionId, contributionId));
 
-  // Idempotency: clear anything left over from a prior attempt at processing
-  // this same contribution (retries, manual reprocessing of failed jobs).
   await detachPriorMembership(contributionId, userId);
   await db.delete(contributionEntities).where(eq(contributionEntities.contributionId, contributionId));
 
@@ -380,11 +335,6 @@ export async function saveProcessedResult(
     );
   }
 
-  // Note: no exclusion of the prior cluster here — detachPriorMembership
-  // already removed this contribution's own membership row above, so there's
-  // no self-matching risk. If the prior cluster still exists (because another
-  // duplicate merged into it earlier in a batch reprocess), it's a perfectly
-  // legitimate candidate to rejoin.
   const match = embedding ? await findBestMatchingCluster(embedding) : null;
 
   let clusterId: string;
@@ -392,16 +342,10 @@ export async function saveProcessedResult(
   let similarity: number | undefined;
 
   if (match && embedding) {
-    // Join the existing cluster instead of creating a new one. Always refine
-    // the centroid with the new text, but only count this as a new distinct
-    // reporter if this user isn't already represented in the cluster.
     const newEmbedding = averageEmbeddings(match.embedding, embedding, match.memberCount);
     const isNewReporter = !(await userAlreadyRepresented(match.id, userId));
     const newMemberCount = isNewReporter ? match.memberCount + 1 : match.memberCount;
 
-    // Only replace the cluster's canonical title/summary/tags/etc. if this
-    // submission is a clearer, more specific description than whatever is
-    // currently representing the cluster — not just because it's newest.
     const isBetterDescription = result.problem.descriptionQuality > match.canonicalQuality;
 
     await db

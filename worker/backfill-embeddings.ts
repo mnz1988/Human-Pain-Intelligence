@@ -9,7 +9,7 @@ const SERVER_URL = process.env.SERVER_URL;
 const WORKER_SECRET = process.env.WORKER_SECRET;
 
 if (!SERVER_URL || !WORKER_SECRET) {
-  console.error("SERVER_URL and WORKER_SECRET must be set in worker/.env — see worker/.env.example");
+  console.error("SERVER_URL and WORKER_SECRET must be set in worker/.env");
   process.exit(1);
 }
 
@@ -85,8 +85,6 @@ async function main() {
 
   console.log(`Found ${clusters.length} cluster(s) missing an embedding. Backfilling...`);
 
-  // Sequential on purpose: a merge changes which clusters exist, so
-  // processing one at a time keeps every step working from current state.
   for (const cluster of clusters) {
     const text = `${cluster.title}. ${cluster.summary ?? ""}`;
     const embedding = await generateEmbedding(text);

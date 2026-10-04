@@ -37,4 +37,3 @@ export function verifySecret(secret: string, stored: string): boolean {
   if (candidate.length !== expected.length) return false;
   return timingSafeEqual(candidate, expected);
 }
-

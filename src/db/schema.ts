@@ -61,13 +61,15 @@ export const contributionContent = pgTable("contribution_content", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// 9.5 contribution_entities — normalized entities pulled out during extraction
+// entities extracted from a contribution (products, companies, locations, etc — never individual names)
 export const contributionEntities = pgTable("contribution_entities", {
   id: uuid("id").primaryKey().defaultRandom(),
-  contributionId: uuid("contribution_id").references(() => contributions.id),
-  entityType: varchar("entity_type", { length: 50 }).notNull(),
+  contributionId: uuid("contribution_id")
+    .notNull()
+    .references(() => contributions.id),
+  entityType: varchar("entity_type", { length: 30 }).notNull(),
   normalizedValue: text("normalized_value").notNull(),
-  confidence: numeric("confidence", { precision: 5, scale: 4 }),
+  confidence: numeric("confidence", { precision: 4, scale: 3 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -106,7 +108,7 @@ export const problemClusters = pgTable("problem_clusters", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-// 9.9 problem_cluster_members
+// problem_cluster_members — each contribution belongs to exactly one cluster
 export const problemClusterMembers = pgTable("problem_cluster_members", {
   contributionId: uuid("contribution_id")
     .primaryKey()

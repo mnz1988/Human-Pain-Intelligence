@@ -40,21 +40,20 @@ export interface ProcessedContribution {
     perspective: "personal" | "secondhand" | "unclear";
     geographicScope: string | null;
     tags: string[];
-    // --- Phase 1 additions ---
-    scale: "individual" | "group" | "mass" | "unclear"; // how many people the text itself suggests are affected
+    scale: "individual" | "group" | "mass" | "unclear";
     durationPattern: "one_time" | "recurring" | "ongoing_chronic" | "unclear";
-    genderSpecificTopic: boolean; // is the PROBLEM ITSELF about a gender-specific issue (not a guess about the submitter)
+    genderSpecificTopic: boolean;
     affectedParty: "self" | "named_other" | "group" | "unclear";
     trend: "worsening" | "improving" | "stable" | "unclear";
     submitterConfidence: "stated_fact" | "inferred_guess" | "uncertain";
-    emotions: string[]; // up to 3 short emotion words, e.g. ["frustration", "resignation"]
-    tradeoff: { benefit: string; cost: string } | null; // e.g. benefit "flexibility", cost "isolation"
-    underlyingNeed: string | null; // hedged hypothesis, not a claimed fact
-    actionable: boolean; // could a product/service/policy realistically address this, vs pure venting
-    willingnessToPay: boolean; // does the text mention money/cost/paying for a fix
-    existingAlternatives: string[]; // named tools/services/workarounds already tried, if any
+    emotions: string[];
+    tradeoff: { benefit: string; cost: string } | null;
+    underlyingNeed: string | null;
+    actionable: boolean;
+    willingnessToPay: boolean;
+    existingAlternatives: string[];
     impactSeverity: "negligible" | "moderate" | "significant" | "severe";
-    descriptionQuality: number; // 0-1, how specific/clear/useful this description is (not length-based)
+    descriptionQuality: number; // 0-1
   };
   entities: Array<{
     entityType: string;

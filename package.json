@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --turbopack",
+    "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
@@ -14,14 +14,16 @@
     "requeue-failed": "tsx worker/requeue-failed.ts",
     "recompute-stats": "tsx worker/recompute-stats.ts",
     "backfill-embeddings": "tsx worker/backfill-embeddings.ts",
-    "inspect-clusters": "tsx worker/inspect-clusters.ts"
+    "inspect-clusters": "tsx worker/inspect-clusters.ts",
+    "import:file": "tsx importer/adapters/from-file.ts",
+    "import:ninisite": "tsx importer/adapters/ninisite.ts"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
+    "@neondatabase/serverless": "^1.0.2",
     "@upstash/qstash": "^2.11.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "jose": "^6.2.12",
+    "jose": "^6.0.0",
     "next": "16.3.4",
     "openai": "^7.13.0",
     "react": "19.2.8",
@@ -29,15 +31,16 @@
     "undici": "^8.10.2"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "^0.31.6",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
-    "tsx": "^4.23.13",
+    "tsx": "^4.19.2",
     "typescript": "^5"
   }
 }

@@ -8,7 +8,7 @@ const SERVER_URL = process.env.SERVER_URL;
 const WORKER_SECRET = process.env.WORKER_SECRET;
 
 if (!SERVER_URL || !WORKER_SECRET) {
-  console.error("SERVER_URL and WORKER_SECRET must be set in worker/.env — see worker/.env.example");
+  console.error("SERVER_URL and WORKER_SECRET must be set in worker/.env");
   process.exit(1);
 }
 
@@ -24,10 +24,7 @@ async function main() {
   const { timestamp, signature } = sign("POST:/api/jobs/recompute-stats");
   const res = await fetch(new URL("/api/jobs/recompute-stats", SERVER_URL).toString(), {
     method: "POST",
-    headers: {
-      "x-worker-timestamp": timestamp,
-      "x-worker-signature": signature,
-    },
+    headers: { "x-worker-timestamp": timestamp, "x-worker-signature": signature },
   });
 
   const data = await res.json().catch(() => null);

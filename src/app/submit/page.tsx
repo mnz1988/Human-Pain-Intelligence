@@ -32,7 +32,6 @@ export default function SubmitPage() {
       }
 
       if (data.account) {
-        // First-ever submission for this browser: show the recovery credential once
         setNewAccount(data.account);
         setSubmitting(false);
       } else {

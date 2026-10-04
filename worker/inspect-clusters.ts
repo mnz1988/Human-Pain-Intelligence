@@ -8,13 +8,13 @@ const SERVER_URL = process.env.SERVER_URL;
 const WORKER_SECRET = process.env.WORKER_SECRET;
 
 if (!SERVER_URL || !WORKER_SECRET) {
-  console.error("SERVER_URL and WORKER_SECRET must be set in worker/.env — see worker/.env.example");
+  console.error("SERVER_URL and WORKER_SECRET must be set in worker/.env");
   process.exit(1);
 }
 
 const titleQuery = process.argv[2];
 if (!titleQuery) {
-  console.error("Usage: npm run inspect-clusters -- \"title substring\"");
+  console.error('Usage: npm run inspect-clusters -- "title substring"');
   process.exit(1);
 }
 
